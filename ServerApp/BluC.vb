@@ -6,6 +6,7 @@ Imports System.Security.Cryptography.X509Certificates
 
 Imports System.Text.RegularExpressions
 Imports System.Security.Cryptography.Pkcs
+Imports System.ServiceProcess
 
 Module BluC
     Private certificate As X509Certificate2
@@ -42,6 +43,7 @@ Module BluC
         End While
 
         If certificatesFiltered.Count = 0 Then
+            restartCertPropSvc()
             certificate = Nothing
             Return ""
         ElseIf certificatesFiltered.Count = 1 Then
@@ -58,6 +60,19 @@ Module BluC
         Return ret
     End Function
 
+    Private Sub restartCertPropSvc()
+        Dim service As ServiceController = New ServiceController("CertPropSvc")
+        If ((service.Status.Equals(ServiceControllerStatus.Stopped)) Or
+            (service.Status.Equals(ServiceControllerStatus.StopPending))) Then
+            service.Start()
+        Else
+            service.Stop()
+            service.WaitForStatus(ServiceControllerStatus.Stopped)
+            service.Start()
+            service.WaitForStatus(ServiceControllerStatus.Running)
+        End If
+    End Sub
+
     Public Function getCertificateBySubject(subject As String) As String
         Dim ret As String = ""
         Dim store As X509Store = New X509Store(StoreName.My, StoreLocation.CurrentUser)
@@ -67,7 +82,7 @@ Module BluC
         Dim enumCert As X509Certificate2Enumerator = certificates.GetEnumerator()
         While (enumCert.MoveNext())
             Dim certificateTmp As X509Certificate2 = enumCert.Current
-            If certificateTmp.subject = subject Then
+            If certificateTmp.Subject = subject Then
                 certificate = certificateTmp
                 Dim certAsByte As Byte() = certificate.Export(X509ContentType.Cert)
                 Dim certAsString As String = Convert.ToBase64String(certAsByte)
