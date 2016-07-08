@@ -15,8 +15,6 @@ Imports System.IO
 Public Class AppContext
     Inherits ApplicationContext
 
-
-
 #Region " Storage "
 
     Private WithEvents Tray As NotifyIcon
@@ -42,7 +40,7 @@ Public Class AppContext
     Public Sub New()
         'Initialize the menus
         mnuSep1 = New ToolStripSeparator()
-        mnuExit = New ToolStripMenuItem("Exit")
+        mnuExit = New ToolStripMenuItem("Sair")
         MainMenu = New ContextMenuStrip
         MainMenu.Items.AddRange(New ToolStripItem() {mnuExit})
 
@@ -51,7 +49,7 @@ Public Class AppContext
         'Tray.Icon = My.Resources.TrayIcon
         Tray.Icon = My.Resources.favicon
         Tray.ContextMenuStrip = MainMenu
-        Tray.Text = "Assijus v0.91"
+        Tray.Text = Application.ProductName & " v" & Application.ProductVersion
 
         'Display
         Tray.Visible = True
@@ -66,7 +64,7 @@ Public Class AppContext
 #Region " HTTP Server "
     Private Sub HttpServer()
         Me.httpListener = New HttpListener() ' Change to IPAddress.Any for internet wide Communication ou Loopback for localhost only
-       
+
         Me.listenThread = New Thread(New ThreadStart(AddressOf HttpListenForClients))
         Me.listenThread.Start()
     End Sub
@@ -116,7 +114,7 @@ Public Class AppContext
         ctx.Response.AddHeader("Content-Type", "application/json")
         ctx.Response.AddHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept")
         ctx.Response.AddHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept")
-       
+
 #If DEBUG Then
         'headers += "Access-Control-Allow-Origin: http://localhost:8888" + vbCrLf
 #Else
@@ -143,7 +141,7 @@ Public Class AppContext
                 jsonOut = sign(jsonIn)
             Else
                 ctx.Response.StatusCode = 404
-                Dim buffer404() As Byte = encoder.GetBytes("{""error"":""Error 404: file not found""}")
+                Dim buffer404() As Byte = encoder.GetBytes("{""errormsg"":""Error 404: file not found""}")
                 ctx.Response.ContentLength64 = buffer404.Length
                 ctx.Response.OutputStream.Write(buffer404, 0, buffer404.Length)
                 Return
@@ -157,11 +155,11 @@ Public Class AppContext
             ctx.Response.StatusCode = 500
             Dim buffer500() As Byte
             Dim message As String = ex.Message
-            If message.StartsWith("O conjunto de chaves não existe") Then
+            If message.StartsWith("O conjunto de chaves não") Then
                 message = "Não localizamos nenhum Token válido no computador. Por favor, verifique se foi corretamente inserido."
             End If
 
-            buffer500 = encoder.GetBytes("{""error"":""" + jsonStringSafe(message) + """}")
+            buffer500 = encoder.GetBytes("{""errormsg"":""" + jsonStringSafe(message) + """}")
             ctx.Response.ContentLength64 = buffer500.Length
             ctx.Response.OutputStream.Write(buffer500, 0, buffer500.Length)
             Return
@@ -370,7 +368,7 @@ Public Class AppContext
             ElseIf msg.StartsWith("POST /sign") Then
                 jsonOut = sign(jsonIn)
             Else
-                Dim header404 As String = "HTTP/1.x 404 NOT FOUND" + headers + "{""error"":""Error 404: file not found""}"
+                Dim header404 As String = "HTTP/1.x 404 NOT FOUND" + headers + "{""errormsg"":""Error 404: file not found""}"
                 buffer = encoder.GetBytes(header404)
                 clientStream.Write(buffer, 0, buffer.Length)
                 clientStream.Flush()
@@ -389,20 +387,19 @@ Public Class AppContext
             clientStream.Flush()
             clientStream.Close()
         Catch ex As Exception
-            Dim buffer() As Byte
-            Dim message As String = ex.Message
-            If message.StartsWith("O conjunto de chaves não existe") Then
-                message = "Não localizamos nenhum Token válido no computador. Por favor, verifique se foi corretamente inserido."
-            End If
-            Dim header500 As String = "HTTP/1.x 500 SERVER ERROR" + headers + "{""error"":""" + jsonStringSafe(message) + """}"
-            buffer = encoder.GetBytes(header500)
-            clientStream.Write(buffer, 0, buffer.Length)
-            clientStream.Flush()
-            clientStream.Close()
-            Return
+            Try
+                Dim buffer() As Byte
+                Dim message As String = ex.Message
+                Dim header500 As String = "HTTP/1.x 500 SERVER ERROR" + headers + "{""errormsg"":""" + jsonStringSafe(message) + """}"
+                buffer = encoder.GetBytes(header500)
+                clientStream.Write(buffer, 0, buffer.Length)
+                clientStream.Flush()
+                clientStream.Close()
+                Return
+            Catch exc As Exception
+                clientStream.Close()
+            End Try
         End Try
-
-
     End Sub
 
 
@@ -414,8 +411,8 @@ Public Class AppContext
         Dim jsonSerializer As New JavaScriptSerializer
 
         Dim testresponse As New TestResponse
-        testresponse.provider = "Assijus"
-        testresponse.version = "0.92"
+        testresponse.provider = Application.ProductName
+        testresponse.version = Application.ProductVersion
         testresponse.status = "OK"
         Dim jsonOut As String = jsonSerializer.Serialize(testresponse)
 
@@ -428,7 +425,7 @@ Public Class AppContext
         Dim certificateresponse As New CertificateResponse
         certificateresponse.subject = getSubject()
         If Not String.IsNullOrEmpty(certificateresponse.subject) Then
-            certificateresponse.certificate = getCertificate("Assinatura Digital", "Escolha o certificado que será utilizado na assinatura.", certificateresponse.subject, "")
+            certificateresponse.certificate = getCertificate(certificateresponse.subject, "")
             certificateresponse.subject = getSubject()
         End If
 
@@ -453,7 +450,7 @@ Public Class AppContext
         End If
 
         Dim certificateresponse As New CertificateResponse
-        certificateresponse.certificate = getCertificate("Assinatura Digital", "Escolha o certificado que será utilizado na assinatura.", subjectRegEx, "")
+        certificateresponse.certificate = getCertificate(subjectRegEx, "")
         certificateresponse.subject = getSubject()
 
         lastCertificate = certificateresponse.certificate
@@ -473,32 +470,37 @@ Public Class AppContext
 
         Dim tokenrequest As TokenRequest = jsonSerializer.Deserialize(Of TokenRequest)(jsonIn)
 
-        If tokenrequest.subject <> Nothing Then
-            Dim s As String = BluC.getCertificateBySubject(tokenrequest.subject)
-        End If
+        Try
+            If tokenrequest.subject <> Nothing Then
+                Dim s As String = BluC.getCertificateBySubject(tokenrequest.subject)
+            End If
 
-        If (Not tokenrequest.token.StartsWith("TOKEN-")) Then
-            Throw New System.Exception("Token should start with TOKEN-.")
-        End If
-        If (tokenrequest.token.Length > 128 Or tokenrequest.token.Length < 16) Then
-            Throw New System.Exception("Token too long or too shor.")
-        End If
+            If (Not tokenrequest.token.StartsWith("TOKEN-")) Then
+                Throw New System.Exception("Token should start with TOKEN-.")
+            End If
+            If (tokenrequest.token.Length > 128 Or tokenrequest.token.Length < 16) Then
+                Throw New System.Exception("Token too long or too shor.")
+            End If
 
-        Dim datetime() As Byte = Encoding.UTF8.GetBytes(tokenrequest.token)
-        ' Dim subject() As Byte = Encoding.UTF8.GetBytes(tokenrequest.subject)
-        'Dim payload(datetime.Length + subject.Length - 1) As Byte
-        'Buffer.BlockCopy(datetime, 0, payload, 0, datetime.Length)
-        'Buffer.BlockCopy(subject, 0, payload, datetime.Length, subject.Length)
-        Dim payloadAsString As String = Convert.ToBase64String(datetime)
+            Dim datetime() As Byte = Encoding.UTF8.GetBytes(tokenrequest.token)
+            ' Dim subject() As Byte = Encoding.UTF8.GetBytes(tokenrequest.subject)
+            'Dim payload(datetime.Length + subject.Length - 1) As Byte
+            'Buffer.BlockCopy(datetime, 0, payload, 0, datetime.Length)
+            'Buffer.BlockCopy(subject, 0, payload, datetime.Length, subject.Length)
+            Dim payloadAsString As String = Convert.ToBase64String(datetime)
 
-        Dim tokenresponse As New TokenResponse
-        tokenresponse.sign = BluC.sign(99, payloadAsString)
+            Dim tokenresponse As New TokenResponse
+            tokenresponse.sign = BluC.sign(99, payloadAsString)
 
-        tokenresponse.subject = getSubject()
-        tokenresponse.token = tokenrequest.token
+            tokenresponse.subject = getSubject()
+            tokenresponse.token = tokenrequest.token
 
-        Dim jsonOut As String = jsonSerializer.Serialize(tokenresponse)
-        Return jsonOut
+            Dim jsonOut As String = jsonSerializer.Serialize(tokenresponse)
+            Return jsonOut
+        Catch ex As Exception
+            clearCurrentCertificate()
+            Throw ex
+        End Try
     End Function
 
     Function sign(jsonIn As String) As String
@@ -633,9 +635,17 @@ Public Class AppContext
 
     Private Sub mnuExit_Click(ByVal sender As Object, ByVal e As System.EventArgs) _
     Handles mnuExit.Click
-        Me.httpListener.Prefixes.Clear()
-        Me.httpListener.Stop()
-        ' Me.tcpListener.Stop()
+        Try
+            Me.httpListener.Prefixes.Clear()
+            Me.httpListener.Stop()
+        Catch ex As Exception
+        End Try
+
+        Try
+            Me.tcpListener.Stop()
+        Catch ex As Exception
+        End Try
+
         Application.Exit()
     End Sub
 

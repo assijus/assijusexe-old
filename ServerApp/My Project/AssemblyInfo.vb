@@ -5,12 +5,12 @@ Imports System.Runtime.InteropServices
 ' General Information about an assembly is controlled through the following 
 ' set of attributes. Change these attribute values to modify the information
 ' associated with an assembly.
-<Assembly: AssemblyTitle("ServerApp")>
-<Assembly: AssemblyDescription("")>
+<Assembly: AssemblyTitle("Assijus")> 
+<Assembly: AssemblyDescription("Assinador Digital")> 
 <Assembly: AssemblyConfiguration("")>
-<Assembly: AssemblyCompany("")>
-<Assembly: AssemblyProduct("ServerApp")>
-<Assembly: AssemblyCopyright("Copyright ©  2013")>
+<Assembly: AssemblyCompany("Tribunal Regional Federal da 2a Regiao")> 
+<Assembly: AssemblyProduct("Assijus")> 
+<Assembly: AssemblyCopyright("Copyright ©  2016")> 
 <Assembly: AssemblyTrademark("")>
 <Assembly: AssemblyCulture("")>
 
@@ -32,5 +32,5 @@ Imports System.Runtime.InteropServices
 ' You can specify all the values or you can default the Build and Revision Numbers 
 ' by using the '*' as shown below:
 ' [assembly: AssemblyVersion("1.0.*")]
-<Assembly: AssemblyVersion("1.0.0.0")>
-<Assembly: AssemblyFileVersion("1.0.0.0")>
+<Assembly: AssemblyVersion("1.0.0.0")> 
+<Assembly: AssemblyFileVersion("0.9.3.0")> 

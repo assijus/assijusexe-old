@@ -6,12 +6,68 @@ Imports System.Security.Cryptography.X509Certificates
 
 Imports System.Text.RegularExpressions
 Imports System.Security.Cryptography.Pkcs
+Imports System.Runtime.InteropServices
 
 Module BluC
+    Private getCertificateTitle As String = "Assinatura Digital"
+    Private getCertificateMessage As String = "Escolha o certificado que será utilizado na assinatura."
+
+    Private WithEvents ni As New NotifyIcon
+    Private Const WM_HOTKEY As Integer = &H312
+    Private Const MOD_CONTROL As UInteger = &H2
+    Private Const WM_SYSCOMMAND As Integer = &H112
+    Private Const SC_MINIMIZE As Integer = &HF020
+    Private Const SW_RESTORE As Integer = &H9
+
+    <DllImport("user32.dll", EntryPoint:="RegisterHotKey")> _
+    Private Function RegisterHotKey(ByVal hWnd As IntPtr, ByVal id As Integer, ByVal fsModifiers As UInteger, ByVal vk As UInteger) As <MarshalAs(UnmanagedType.Bool)> Boolean
+    End Function
+
+    <DllImport("user32.dll", EntryPoint:="UnregisterHotKey")> _
+    Private Function UnregisterHotKey(ByVal hWnd As IntPtr, ByVal id As Integer) As <MarshalAs(UnmanagedType.Bool)> Boolean
+    End Function
+
+    <DllImport("user32.dll", EntryPoint:="SetForegroundWindow")> _
+    Private Function SetForegroundWindow(ByVal hWnd As IntPtr) As <MarshalAs(UnmanagedType.Bool)> Boolean
+    End Function
+
+    <DllImport("user32.dll", EntryPoint:="FindWindowW")> _
+    Private Function FindWindowW(<MarshalAs(UnmanagedType.LPTStr)> ByVal lpClassName As String, <MarshalAs(UnmanagedType.LPTStr)> ByVal lpWindowName As String) As IntPtr
+    End Function
+
+    <DllImport("user32.dll", EntryPoint:="IsWindowVisible")> _
+    Private Function IsWindowVisible(ByVal hWnd As IntPtr) As <MarshalAs(UnmanagedType.Bool)> Boolean
+    End Function
+
+    <DllImport("user32.dll", EntryPoint:="ShowWindow")> _
+    Private Function ShowWindow(ByVal hWnd As IntPtr, ByVal nCmdShow As Integer) As <MarshalAs(UnmanagedType.Bool)> Boolean
+    End Function
+
+    <DllImport("user32.dll", EntryPoint:="IsIconic")> _
+    Private Function IsIconic(ByVal hWnd As IntPtr) As <MarshalAs(UnmanagedType.Bool)> Boolean
+    End Function
+
+
+    Private Sub activateCertificateSelectionWindow()
+        Threading.Thread.Sleep(500) ' 500 milliseconds = 0.5 seconds
+
+        Dim hwnd As IntPtr = FindWindowW(Nothing, getCertificateTitle) 'Find the window handle (Works even if the app is hidden and not shown in taskbar)
+        If hwnd <> IntPtr.Zero Then
+            If Not IsWindowVisible(hwnd) Or IsIconic(hwnd) Then 'If the window is minimized or hidden then Restore and Show the window
+                ShowWindow(hwnd, SW_RESTORE)
+                ni.Visible = False
+            End If
+            SetForegroundWindow(hwnd) 'Set the window as the foreground window
+        End If
+    End Sub
+
     Private certificate As X509Certificate2
 
-    Public Function getCertificate(title As String, message As String, subjectRegex As String, issuerRegex As String) As String
-        Dim ret As String = ""
+    Public Sub clearCurrentCertificate()
+        certificate = Nothing
+    End Sub
+
+    Private Function getCertificateList(subjectRegex As String, issuerRegex As String) As X509Certificate2Collection
         Dim store As X509Store = New X509Store(StoreName.My, StoreLocation.CurrentUser)
         store.Open(OpenFlags.OpenExistingOnly)
         Dim certificates As X509Certificate2Collection = store.Certificates
@@ -19,6 +75,7 @@ Module BluC
         Dim enumCert As X509Certificate2Enumerator = certificates.GetEnumerator()
         While (enumCert.MoveNext())
             Dim certificateTmp As X509Certificate2 = enumCert.Current
+
             Dim subjectOk As Boolean = True
             If subjectRegex.Length > 0 Then
                 subjectOk = certificateTmp.Subject = subjectRegex
@@ -36,10 +93,16 @@ Module BluC
 
             Dim dateOk As Boolean = Now > certificateTmp.NotBefore AndAlso Now < certificateTmp.NotAfter
 
-            If subjectOk And issuerOk And dateOk Then
+            If subjectOk AndAlso issuerOk AndAlso dateOk AndAlso certificateTmp.HasPrivateKey Then
                 certificatesFiltered.Add(certificateTmp)
             End If
         End While
+        Return certificatesFiltered
+    End Function
+
+    Public Function getCertificate(subjectRegex As String, issuerRegex As String) As String
+        Dim ret As String = ""
+        Dim certificatesFiltered As X509Certificate2Collection = getCertificateList(subjectRegex, issuerRegex)
 
         If certificatesFiltered.Count = 0 Then
             certificate = Nothing
@@ -47,7 +110,9 @@ Module BluC
         ElseIf certificatesFiltered.Count = 1 Then
             certificate = certificatesFiltered(0)
         Else
-            Dim certificateSel As X509Certificate2Collection = X509Certificate2UI.SelectFromCollection(certificatesFiltered, title, message, X509SelectionFlag.SingleSelection)
+            Dim ti As Threading.Thread = New Threading.Thread(AddressOf activateCertificateSelectionWindow)
+            ti.Start()
+            Dim certificateSel As X509Certificate2Collection = X509Certificate2UI.SelectFromCollection(certificatesFiltered, getCertificateTitle, getCertificateMessage, X509SelectionFlag.SingleSelection)
             If certificateSel.Count > 0 Then
                 certificate = certificateSel(0)
             End If
@@ -59,21 +124,13 @@ Module BluC
     End Function
 
     Public Function getCertificateBySubject(subject As String) As String
-        Dim ret As String = ""
-        Dim store As X509Store = New X509Store(StoreName.My, StoreLocation.CurrentUser)
-        store.Open(OpenFlags.OpenExistingOnly)
-        Dim certificates As X509Certificate2Collection = store.Certificates
-        Dim certificatesFiltered As X509Certificate2Collection = New X509Certificate2Collection()
-        Dim enumCert As X509Certificate2Enumerator = certificates.GetEnumerator()
-        While (enumCert.MoveNext())
-            Dim certificateTmp As X509Certificate2 = enumCert.Current
-            If certificateTmp.subject = subject Then
-                certificate = certificateTmp
-                Dim certAsByte As Byte() = certificate.Export(X509ContentType.Cert)
-                Dim certAsString As String = Convert.ToBase64String(certAsByte)
-                Return certAsString
-            End If
-        End While
+        Dim certificatesFiltered As X509Certificate2Collection = getCertificateList(subject, "")
+        If certificatesFiltered.Count > 0 Then
+            certificate = certificatesFiltered(0)
+            Dim certAsByte As Byte() = certificate.Export(X509ContentType.Cert)
+            Dim certAsString As String = Convert.ToBase64String(certAsByte)
+            Return certAsString
+        End If
         Return Nothing
     End Function
 
@@ -127,7 +184,7 @@ Module BluC
                 Case 0
                     hash = New SHA1Managed()
                 Case 1
-                    Throw New Exception("unsupported algorithm")
+                    Throw New Exception("Algoritmo nao suportado.")
                 Case 2
                     hash = New SHA256Managed()
                 Case 3
@@ -142,6 +199,9 @@ Module BluC
             Dim verify As Boolean = False
             signature = privateKey.SignData(content, hash)
             verify = publicKey.VerifyData(content, hash, signature)
+            If Not verify Then
+                Throw New Exception("Erro verificando assinatura com a chave publica")
+            End If
         End If
         Return signature
     End Function
@@ -153,9 +213,13 @@ Module BluC
                 Return 0
             Case "SHA256", "2"
                 Return 2
+            Case "SHA384", "3"
+                Return 3
+            Case "SHA512", "4"
+                Return 4
             Case "PKCS7", "99"
                 Return 99
         End Select
-        Throw New Exception("Hash alg not recognized: " + hashAlg)
+        Throw New Exception("Algoritmo de hash nao reconhecido: " + hashAlg)
     End Function
 End Module
